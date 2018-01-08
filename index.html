@@ -1,0 +1,216 @@
+<doctype html>
+<font face = "Verdana" size = "2">
+    &nbsp;&nbsp;ONSET DETECTION USING SPECTRAL FLUX<br><br>&nbsp;
+    This patch gives information about when a particular sound has occurred.<br>&nbsp;
+    Designed with drums in mind, the user is able to select frequency ranges for a kick drum and hihat (or other high frequency instrument)<br>&nbsp;
+    The threshold of detection can also be edited using the corresponding sliders.<br>&nbsp;
+    The top graph shows the current and previous spectra, while the bottom shows the Spectral Flux.<br>&nbsp;
+    When a hit is detected, the graph changes in colour to green.
+</font>
+
+<html>
+<head>
+
+
+</head>
+<body>
+    <script src="js/maxiLib.js"></script>
+    <script src="js/nexusUI.js"></script>
+
+    <div style="background:#fff;color:black;height:15%">      
+    <font face = "Verdana" size = "2">
+        <br><br>&nbsp;&nbsp;
+        Kick Frequency &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+        Kick Threshold &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+        Hat Frequency &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+        Hat Threshold
+        <br>&nbsp;
+        <canvas id="slider1" nx="slider" max="500" height="50" width="150"></canvas>
+        &nbsp;&nbsp;&nbsp;&nbsp;
+        <canvas id="slider2" nx="slider" max="30" height="50" width="150"></canvas>
+        &nbsp;&nbsp;&nbsp;&nbsp;       
+        <canvas id="slider3" nx="slider" max="20000" min="500" height="50" width="150"></canvas>
+        &nbsp;&nbsp;&nbsp;&nbsp;          
+        <canvas id="slider4" nx="slider" max="30" height="50" width="150"></canvas>
+        </font>
+    </div>
+    <canvas id="plot"></canvas>
+    
+<script type="text/javascript">
+
+    /*AUDIO STUFF*/
+    var maxiAudio = new maximJs.maxiAudio();
+    maxiAudio.init();
+    var samp = new maximJs.maxiSample();
+
+
+    var fft = new maximJs.maxiFFT();
+    var fftSize = 1024;
+    var N = fftSize/2;          //number of bins in FFT
+    var binRes = 22050 / N;     //Nyquist Rate / number of bins (43.1 Hz per bin)
+    fft.setup(fftSize, fftSize, 256);
+  
+    /*SPECTRUM STUFF*/
+    var spectrum = new Array(N);
+    var prevSpectrum = new Array(N);
+    var spectralFlux = [];      //empty array for flux created
+ 
+
+    /*DETECTION STUFF*/
+    var kickHit = false;
+    var kickFreq = 200;     //frequency of kick can be changed depending on sample
+    var kickThresh = 15;    //threshold can be raised/lowered accordingly
+    var kickCount = 0;
+
+    var hatHit = false;
+    var hatFreq = 5000;     //frequency of hat can be changed depending on sample
+    var hatThresh = 2;      //threshold can be raised/lowered accordingly
+    var hatCount = 0;
+
+    /*DRAWING STUFF*/
+    var canvas=document.querySelector("#plot");
+    var width = window.innerWidth;
+    var height = window.innerHeight;
+    var context=canvas.getContext("2d");
+    canvas.setAttribute("width",width);
+    canvas.setAttribute("height",height);
+    var spacing = (width/(fftSize)*2);
+    var output;
+
+    /*samples can be selected by commenting out various lines below*/
+    
+    //maxiAudio.loadSample("Drums_Full Kit 1_115bpm.wav", samp);
+    //maxiAudio.loadSample("Drums_Full Kit 2_100bpm.wav", samp);
+    maxiAudio.loadSample('samples/Drums_Full Kit 2_100bpm 2.wav', samp);
+    //maxiAudio.loadSample("Decompression.mp3", samp);
+    
+    //variables for the sliders
+    var slider1, slider2, slider3, slider4;
+  
+
+    maxiAudio.play = function() {
+         
+        var wave = 0.5*samp.play(); 
+    
+        if (fft.process(wave)) {
+            fft.magsToDB();
+        }
+        this.output = wave;
+    };
+
+
+    function draw() {
+        
+        context.clearRect(0, 0, width, height);
+
+        for (var i = 0; i < N; i++) {
+    
+            prevSpectrum[i-1] = fft.getMagnitudeDB(i);  //i-1 is previous frame
+            spectrum[i] = fft.getMagnitudeDB(i);        //FFT calculated for current frame
+                
+            //spectral flux is simply the difference between the current and previous spectra
+            spectralFlux[i] = (spectrum[i] - prevSpectrum[i]);  
+    
+            //Cast negative values to zero as we only want positive changes
+            if(spectralFlux[i] < 0) {
+                spectralFlux[i] = 0;
+            }
+                
+            //which i values correspond to the predetermined frequencies is calculated
+            var kickBin = kickFreq / binRes;
+            var hatBin = hatFreq / binRes;
+      
+            //if the flux is above a determined threshold and lies within
+            //the correct range, a hit is detected
+            if(spectralFlux[i] > kickThresh && i < kickBin) {
+                spectralFlux[i] = spectralFlux[i] * 4;
+                kickHit = true;
+                kickCount += 1;
+            } else {
+                kickHit = false;
+                kickCount = kickCount;
+            }
+            //same as above except with different parameters 
+            if (spectralFlux[i] > hatThresh && i > hatBin) {
+                spectralFlux[i] = spectralFlux[i] * 4;
+                hatHit = true;
+                hatCount += 1;
+            } else {
+                hatHit = false;
+                hatCount = hatCount;
+            }
+    
+            //if a hit is detected, the colour of the FFT at that frequency is changed
+            if(kickHit || hatHit) {   
+                context.beginPath();
+                context.strokeStyle="green";
+            } else {
+                context.beginPath();
+                context.strokeStyle="grey";
+            }
+            
+            if(i<N){
+                //The spectral flux is drawn
+                context.moveTo(i*spacing, 350);
+                context.lineTo(i*spacing, 350 + spectralFlux[i] * -1);
+                context.stroke();
+                //The spectrum of the previous frame is drawn
+                context.beginPath();
+                context.moveTo(i*spacing, 200);
+                context.lineTo(i * spacing, 200 + prevSpectrum[i] * -4);
+                context.strokeStyle="grey";
+                context.stroke();
+                //The spectrum of the current frame is drawn on top  
+                context.beginPath();
+                context.moveTo(i*spacing, 200);
+                context.lineTo(i*spacing, 200 + spectrum[i] * -4);
+                context.strokeStyle="grey";
+                context.stroke();
+                context.closePath();
+                //line showing kick threshold and frequency is drawn
+                context.beginPath();
+                context.moveTo(kickBin*spacing, 200);
+                context.lineTo(kickBin*spacing, 200-kickThresh*4);
+                context.strokeStyle="#775593";
+                context.stroke();
+                //line showing hihat threshold and frequency is drawn
+                context.moveTo(hatBin*spacing, 200);
+                context.lineTo(hatBin*spacing, 200-hatThresh*4);
+                context.strokeStyle="#775593";
+                context.stroke();
+                context.closePath();
+            }
+        }
+    }
+    setInterval(draw, 10);
+    
+    //below are functions to handle the GUI data
+    nx.onload = function(){
+        nx.colorize('fill', "#999999");
+        nx.colorize('accent', "#775593");
+        slider1.on('*', slider1Changed);  
+        slider2.on('*', slider2Changed); 
+        slider3.on('*', slider3Changed);  
+        slider4.on('*', slider4Changed);  
+    };
+    //functions called when corresponding slider is moved
+    function slider1Changed(data){
+        kickFreq=data.value;
+    }
+    function slider2Changed(data){
+        kickThresh = data.value;
+    }
+    function slider3Changed(data){
+        hatFreq=data.value;
+    }
+    function slider4Changed(data){
+    
+        hatThresh=data.value;
+    }
+
+</script>
+</body>
+
+
+</html>
+</doctype>
